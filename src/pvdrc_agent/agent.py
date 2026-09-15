@@ -1,3 +1,5 @@
+import math
+
 from .interfaces import DRCTool, Diagnoser, EpisodeStore, RepairPlanner
 from .models import AgentConfig, AgentResult, RepairCandidate, ViolationCase
 from .policy import repair_is_allowed, validation_is_safe
@@ -16,7 +18,7 @@ class DRCRepairAgent:
     def run(self, case: ViolationCase) -> AgentResult:
         diagnosis = self.diagnoser.diagnose(case)
         before = self.tool.inspect(case)
-        if diagnosis.confidence < self.config.confidence_threshold:
+        if not math.isfinite(diagnosis.confidence) or not 0 <= diagnosis.confidence <= 1 or diagnosis.confidence < self.config.confidence_threshold:
             result = AgentResult("abstained", case.violation_id, diagnosis, reason="diagnosis confidence below threshold", before_count=before.total_violations, after_count=before.total_violations)
             self._record(case, result)
             return result
@@ -38,14 +40,14 @@ class DRCRepairAgent:
                 if safe:
                     self.tool.commit(snapshot)
                     result = AgentResult("fixed", case.violation_id, diagnosis, repair, attempts, before_count=before.total_violations, after_count=after.total_violations)
-                    self._record(case, result)
-                    return result
+                    break
                 last_reason = reason
             except Exception as exc:
                 last_reason = f"tool failure: {type(exc).__name__}"
             self.tool.rollback(snapshot)
 
-        result = AgentResult("unresolved", case.violation_id, diagnosis, attempts=attempts, reason=last_reason, before_count=before.total_violations, after_count=before.total_violations)
+        else:
+            result = AgentResult("unresolved", case.violation_id, diagnosis, attempts=attempts, reason=last_reason, before_count=before.total_violations, after_count=before.total_violations)
         self._record(case, result)
         return result
 
